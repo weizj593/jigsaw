@@ -1,4 +1,5 @@
 import styles from './jigsaw.css'
+import snake from './snake.js'
 
 const w = 310 // canvas宽度
 const h = 155 // canvas高度
@@ -6,6 +7,7 @@ const l = 42 // 滑块边长
 const r = 9 // 滑块半径
 const PI = Math.PI
 const L = l + r * 2 + 3 // 滑块实际边长
+let me
 
 function getRandomNumberByRange (start, end) {
   return Math.round(Math.random() * (end - start) + start)
@@ -18,35 +20,34 @@ function createCanvas (width, height) {
   return canvas
 }
 
-function createImg (onload) {
-  const img = new Image()
-  img.crossOrigin = 'Anonymous'
-  img.onload = onload
-  img.onerror = () => {
-   img.setSrc(getRandomImgSrc()) // 图片加载失败的时候重新加载其他图片
-  }
-  
-  img.setSrc = function (src) {
-    const isIE = window.navigator.userAgent.indexOf('Trident') > -1
-    if (isIE) { // IE浏览器无法通过img.crossOrigin跨域，使用ajax获取图片blob然后转为dataURL显示
-      const xhr = new XMLHttpRequest()
-      xhr.onloadend = function (e) {
-        const file = new FileReader() // FileReader仅支持IE10+
-        file.readAsDataURL(e.target.response)
-        file.onloadend = function (e) {
-          img.src = e.target.result
-        }
-      }
-      xhr.open('GET', src)
-      xhr.responseType = 'blob'
-      xhr.send()
-    }
-    else img.src = src
-  }
-
-  img.setSrc(getRandomImgSrc())
-  return img
-}
+// function createImg (onload) {
+//   const img = new Image()
+//   img.crossOrigin = 'Anonymous'
+//   img.onload = onload
+//   img.onerror = () => {
+//     img.setSrc(getRandomImgSrc()) // 图片加载失败的时候重新加载其他图片
+//   }
+//
+//   img.setSrc = function (src) {
+//     const isIE = window.navigator.userAgent.indexOf('Trident') > -1
+//     if (isIE) { // IE浏览器无法通过img.crossOrigin跨域，使用ajax获取图片blob然后转为dataURL显示
+//       const xhr = new XMLHttpRequest()
+//       xhr.onloadend = function (e) {
+//         const file = new FileReader() // FileReader仅支持IE10+
+//         file.readAsDataURL(e.target.response)
+//         file.onloadend = function (e) {
+//           img.src = e.target.result
+//         }
+//       }
+//       xhr.open('GET', src)
+//       xhr.responseType = 'blob'
+//       xhr.send()
+//     } else img.src = src
+//   }
+//   // console.log('createImg x '+ this)
+//   img.setSrc(getRandomImgSrc())
+//   return img
+// }
 
 function createElement (tagName, className) {
   const element = document.createElement(tagName)
@@ -66,9 +67,10 @@ function removeClass (element, className) {
   element.classList.remove(styles[className])
 }
 
-function getRandomImgSrc () {
-  return `https://picsum.photos/id/${getRandomNumberByRange(0, 1084)}/${w}/${h}`
-}
+// function getRandomImgSrc () {
+//   // console.log('getRandomImgSrc',this) //  x ' + this.x + ' Y ' + this.y
+//   return `https://picsum.photos/id/${getRandomNumberByRange(0, 1084)}/${w}/${h}`
+// }
 
 function drawPath (ctx, x, y, operation) {
   ctx.beginPath()
@@ -85,7 +87,7 @@ function drawPath (ctx, x, y, operation) {
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'
   ctx.stroke()
   ctx.globalCompositeOperation = 'destination-over'
-  operation === 'fill'? ctx.fill() : ctx.clip()
+  operation === 'fill' ? ctx.fill() : ctx.clip()
 }
 
 function sum (x, y) {
@@ -97,11 +99,11 @@ function square (x) {
 }
 
 class Jigsaw {
-  constructor ({ el, width = w, height = h, onSuccess, onFail, onRefresh }) {
+  constructor ({ el, width = w, height = h, onSuccess, onFail, onRefresh, fnImgSrc, fnVerify ,errImg}) {
     Object.assign(el.style, {
       position: 'relative',
       width: width + 'px',
-      margin: '0 auto'
+      margin: '0 auto',
     })
     this.width = width
     this.height = height
@@ -109,6 +111,9 @@ class Jigsaw {
     this.onSuccess = onSuccess
     this.onFail = onFail
     this.onRefresh = onRefresh
+    this.fnImgSrc = fnImgSrc
+    this.fnVerify = fnVerify
+    this.errImg = errImg
   }
 
   init () {
@@ -131,7 +136,7 @@ class Jigsaw {
     const sliderIcon = createElement('span', 'sliderIcon')
     const text = createElement('span', 'sliderText')
     text.innerHTML = '向右滑动填充拼图'
-    
+
     // 增加loading
     const loadingContainer = createElement('div', 'loadingContainer')
     loadingContainer.style.width = width + 'px'
@@ -164,7 +169,7 @@ class Jigsaw {
       sliderIcon,
       text,
       canvasCtx: canvas.getContext('2d'),
-      blockCtx: block.getContext('2d')
+      blockCtx: block.getContext('2d'),
     })
   }
 
@@ -172,9 +177,10 @@ class Jigsaw {
     this.loadingContainer.style.display = isLoading ? '' : 'none'
     this.sliderContainer.style.pointerEvents = isLoading ? 'none' : ''
   }
-  
+
   initImg () {
-    const img = createImg(() => {
+    // console.log('initImg x', this)
+    const img = this.createImg(() => {
       this.setLoading(false)
       this.draw(img)
     })
@@ -184,15 +190,16 @@ class Jigsaw {
   draw (img) {
     const { width, height } = this
     // 随机位置创建拼图形状
-    this.x = getRandomNumberByRange(L + 10, width - (L + 10))
-    this.y = getRandomNumberByRange(10 + r * 2, height - (L + 10))
+    // this.x = getRandomNumberByRange(L + 10, width - (L + 10))
+    // this.y = getRandomNumberByRange(10 + r * 2, height - (L + 10))
+    // console.log('draw x ' + this.x + ' y ' + this.y)
     drawPath(this.canvasCtx, this.x, this.y, 'fill')
     drawPath(this.blockCtx, this.x, this.y, 'clip')
-    
+
     // 画入图片
     this.canvasCtx.drawImage(img, 0, 0, width, height)
     this.blockCtx.drawImage(img, 0, 0, width, height)
-    
+
     // 提取滑块并放到最左边
     const y = this.y - r * 2 - 1
     const ImageData = this.blockCtx.getImageData(this.x - 3, y, L, L)
@@ -270,10 +277,22 @@ class Jigsaw {
     const deviations = arr.map(x => x - average)
     const stddev = Math.sqrt(deviations.map(square).reduce(sum) / arr.length)
     const left = parseInt(this.block.style.left)
-    return {
-      spliced: Math.abs(left - this.x) < 10,
-      verified: stddev !== 0, // 简单验证拖动轨迹，为零时表示Y轴上下没有波动，可能非人为操作
+    const spliced = Math.abs(left - this.x) < 10
+    const verified = stddev !== 0
+    // console.log('left ' + left + ' x ' + this.x + ' y ' + this.y)
+    let req = {
+      spliced: spliced,
+      verified: verified,
+      left: left
     }
+    let qs = snake.fnVerifyQs(req)
+    req.spliced = this.fnVerify(qs, spliced)
+    return req
+    // todo
+    // return {
+    //   spliced: Math.abs(left - this.x) < 10,
+    //   verified: stddev !== 0, // 简单验证拖动轨迹，为零时表示Y轴上下没有波动，可能非人为操作
+    // }
   }
 
   reset () {
@@ -284,19 +303,66 @@ class Jigsaw {
     this.block.width = width
     this.block.style.left = 0 + 'px'
     this.sliderMask.style.width = 0 + 'px'
-    
+
     // 清空画布
     this.canvasCtx.clearRect(0, 0, width, height)
     this.blockCtx.clearRect(0, 0, width, height)
-    
+
     // 重新加载图片
     this.setLoading(true)
-    this.img.setSrc(getRandomImgSrc())
+    this.img.setSrc(this.getRandomImgSrc())
+  }
+
+  getRandomImgSrc () {
+    this.x = getRandomNumberByRange(L + 10, this.width - (L + 10))
+    this.y = getRandomNumberByRange(10 + r * 2, this.height - (L + 10))
+    // console.log('getRandomImgSrc x ' + this.x + ' Y ' + this.y)
+    let qs = snake.fnImgSrcQs({ w: w, h: h, x: this.x, y: this.y })
+    return this.fnImgSrc(qs)
+    // todo
+    // return `https://picsum.photos/id/${getRandomNumberByRange(0,
+    //   1084)}/${w}/${h}`
+  }
+
+  createImg (onload) {
+    const img = new Image()
+    img.crossOrigin = 'Anonymous'
+    img.onload = onload
+    img.onerror = () => {
+      // img.setSrc(this.getRandomImgSrc()) // 图片加载失败的时候重新加载其他图片
+      img.setSrc(this.errImg)
+    }
+
+    img.setSrc = function (src) {
+      const isIE = window.navigator.userAgent.indexOf('Trident') > -1
+      if (isIE) { // IE浏览器无法通过img.crossOrigin跨域，使用ajax获取图片blob然后转为dataURL显示
+        const xhr = new XMLHttpRequest()
+        xhr.onloadend = function (e) {
+          const file = new FileReader() // FileReader仅支持IE10+
+          file.readAsDataURL(e.target.response)
+          file.onloadend = function (e) {
+            img.src = e.target.result
+          }
+        }
+        xhr.open('GET', src)
+        xhr.responseType = 'blob'
+        xhr.send()
+      } else img.src = src
+    }
+    // console.log('createImg x ', this)
+    img.setSrc(this.getRandomImgSrc())
+    return img
   }
 }
 
 window.jigsaw = {
   init: function (opts) {
-    return new Jigsaw(opts).init()
-  }
+    this.me = new Jigsaw(opts)
+    this.me.init()
+    return this.me
+  },
+  reset: function () {
+    // console.log('reset ', this.me)
+    return this.me && this.me.reset()
+  },
 }
